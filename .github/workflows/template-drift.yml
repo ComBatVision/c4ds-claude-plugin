@@ -37,6 +37,10 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The default list includes the legacy `tools` package, which current sdkmanager no
+          # longer has, so the step fails. AGP installs the platform it needs during the build.
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v4
 
