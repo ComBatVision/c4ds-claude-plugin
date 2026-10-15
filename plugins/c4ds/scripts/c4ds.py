@@ -349,11 +349,11 @@ def render(template: str, tokens: dict) -> str:
 
 def cmd_new_tool(args: argparse.Namespace) -> None:
     scaffold(find_project(Path.cwd()), args.module, args.tool, args.package, args.label,
-             args.minimal)
+             args.minimal, args.new_apk)
 
 
 def scaffold(project: Path, module: str, tool: str | None, package: str | None,
-             label: str | None, minimal: bool) -> None:
+             label: str | None, minimal: bool, new_apk: bool = False) -> None:
     def write(path: Path, content: str) -> None:
         if path.exists():
             fail(f"Refusing to overwrite {rel(path, project)}")
@@ -377,6 +377,13 @@ def scaffold(project: Path, module: str, tool: str | None, package: str | None,
 
     module_dir = project / module
     new_module = not module_dir.exists()
+    if new_module and not new_apk:
+        # Every plugin APK costs the host start-up time, so tools share one APK by default.
+        existing = sorted(p.parents[4].name for p in project.glob("*/src/main/res/xml/combat_tools.xml"))
+        if existing:
+            fail(f"The project already has a tool APK ({', '.join(existing)}). Add the tool there: "
+                 f"`new-tool {existing[0]} --tool {tool}`. Each extra APK slows the host's start-up; "
+                 "pass --new-apk only when the tool cannot share the APK (see the new-tool skill).")
     if new_module:
         if not package:
             fail("A new module needs --package, e.g. com.example.weather")
@@ -674,6 +681,9 @@ def main() -> None:
         p.add_argument("--package", help="base package of a new module, e.g. com.example.weather")
         p.add_argument("--label", help="app label of a new module")
         p.add_argument("--minimal", action="store_true", help="window + ViewModel only")
+        if module_required:
+            p.add_argument("--new-apk", action="store_true",
+                           help="allow a new module although the project has a tool APK")
 
     p = sub.add_parser("setup", help="create a C4DS tool project")
     p.add_argument("--dir", default=".", help="project dir (default: current)")

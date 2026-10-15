@@ -40,7 +40,9 @@ A missing device or host app is only a warning: it matters for running the tool,
 
 - **Directory:** the current repo root, unless the user names another one. It must not have
   a Gradle settings file yet; for that case see "Existing project" below.
-- **First tool:** module name and base package (`com.example.weather`). Ask for the package
+- **First tool:** module name and base package (`com.example.weather`). The module is the
+  project's plugin APK and later tools join it, so name it after the product, not the first
+  tool (`weather` holds Weather, Radar, ...). Ask for the package
   if the user did not give one; it becomes the APK's `applicationId`.
 - **Ref:** `main` by default. Pass `--ref <branch-or-tag>` only when the user needs an older
   SDK line.
@@ -87,6 +89,8 @@ Tell the developer:
 - `AGENTS.md` and `docs/` are the rules for this project; agents read them first.
 - `/c4ds:new-tool` adds tools, `/c4ds:doctor` checks the environment, `/c4ds:update-sdk`
   moves to a newer SDK and refreshes the docs.
+- Further tools go into the same module, so the project stays one APK: every extra plugin APK
+  makes the host app slower to start.
 - Nothing is committed. Suggest a first commit of the generated files; `local.properties` is
   ignored.
 

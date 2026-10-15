@@ -18,12 +18,12 @@ claude plugin marketplace update c4ds-claude-plugin
 
 ## Skills
 
-| Skill                 | What it does                                                                                           |
-|-----------------------|--------------------------------------------------------------------------------------------------------|
+| Skill                 | What it does                                                                                               |
+|-----------------------|------------------------------------------------------------------------------------------------------------|
 | `/c4ds:setup-project` | Sets up a repo: Gradle wrapper, Nexus repository, SDK/AGP/Kotlin pins, `AGENTS.md` + `docs/`, a first tool |
-| `/c4ds:new-tool`      | Adds a tool, as a new plugin APK module or into an existing module                                     |
-| `/c4ds:doctor`        | Checks JDK, Android SDK, device, host app, Nexus credentials and access, and the SDK pin               |
-| `/c4ds:update-sdk`    | Moves the SDK, AGP, Kotlin and Gradle versions to the latest samples, refreshes the docs                |
+| `/c4ds:new-tool`      | Adds a tool to the project's existing plugin APK; a new APK only when the tool cannot share it             |
+| `/c4ds:doctor`        | Checks JDK, Android SDK, device, host app, Nexus credentials and access, and the SDK pin                   |
+| `/c4ds:update-sdk`    | Moves the SDK, AGP, Kotlin and Gradle versions to the latest samples, refreshes the docs                   |
 
 Type `/c4ds` in Claude Code to list them, or describe the task ("set up a C4DS tool project here")
 and Claude picks the skill.
@@ -79,10 +79,10 @@ Settings > Secrets and variables > Actions), with this repository in their acces
 workflow passes them to Gradle as `c4ds_sdk_username` and `c4ds_sdk_password`. A repository
 secret with the same name would override them, so do not add one:
 
-| Secret              | Value                     |
-|---------------------|---------------------------|
-| `C4DS_SDK_USERNAME` | Nexus `maven-sdk` user    |
-| `C4DS_SDK_PASSWORD` | Password of that user     |
+| Secret              | Value                  |
+|---------------------|------------------------|
+| `C4DS_SDK_USERNAME` | Nexus `maven-sdk` user |
+| `C4DS_SDK_PASSWORD` | Password of that user  |
 
 Without them, pull requests (including ones from forks) skip the build with a warning; pushes and
 scheduled runs fail.
