@@ -21,7 +21,7 @@ claude plugin marketplace update c4ds-claude-plugin
 | Skill                 | What it does                                                                                               |
 |-----------------------|------------------------------------------------------------------------------------------------------------|
 | `/c4ds:setup-project` | Sets up a repo: Gradle wrapper, Nexus repository, SDK/AGP/Kotlin pins, `AGENTS.md` + `docs/`, a first tool |
-| `/c4ds:new-tool`      | Adds a tool to the project's existing plugin APK; a new APK only when the tool cannot share it             |
+| `/c4ds:new-tool`      | Adds a tool: into the APK it ships with, or its own APK when users install it separately                   |
 | `/c4ds:doctor`        | Checks JDK, Android SDK, device, host app, Nexus credentials and access, and the SDK pin                   |
 | `/c4ds:update-sdk`    | Moves the SDK, AGP, Kotlin and Gradle versions to the latest samples, refreshes the docs                   |
 

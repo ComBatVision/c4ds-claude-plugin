@@ -409,12 +409,13 @@ def scaffold(project: Path, module: str, tool: str | None, package: str | None,
     module_dir = project / module
     new_module = not module_dir.exists()
     if new_module and not new_apk:
-        # Every plugin APK costs the host start-up time, so tools share one APK by default.
+        # Every plugin APK costs the host start-up time, so tools that ship together share one.
         existing = sorted(p.parents[4].name for p in project.glob("*/src/main/res/xml/combat_tools.xml"))
         if existing:
-            fail(f"The project already has a tool APK ({', '.join(existing)}). Add the tool there: "
-                 f"`new-tool {existing[0]} --tool {tool}`. Each extra APK slows the host's start-up; "
-                 "pass --new-apk only when the tool cannot share the APK (see the new-tool skill).")
+            fail(f"The project already has a tool APK ({', '.join(existing)}). If the tool ships with "
+                 f"those tools, add it there: `new-tool {existing[0]} --tool {tool}`; each extra APK "
+                 "slows the host's start-up. Pass --new-apk if users install the tool on its own, or "
+                 "for another reason in the new-tool skill.")
     if new_module:
         if not package:
             fail("A new module needs --package, e.g. com.example.weather")

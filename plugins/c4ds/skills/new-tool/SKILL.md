@@ -1,6 +1,6 @@
 ---
 name: new-tool
-description: Scaffold a new external C4DS tool, by default as another tool in the project's existing plugin APK (a new APK only when one is required), from a fixed template that follows the C4DS docs, then build it. Use when the user asks to create, start, scaffold or add a C4DS tool, plugin or sample in an existing C4DS tool project.
+description: Scaffold a new external C4DS tool, in the plugin APK it ships with (tools distributed together share one APK; a separately installed tool gets its own), from a fixed template that follows the C4DS docs, then build it. Use when the user asks to create, start, scaffold or add a C4DS tool, plugin or sample in an existing C4DS tool project.
 argument-hint: <module> [--tool Name] [--package com.example.x] [--label "App label"] [--minimal] [--new-apk]
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
@@ -16,35 +16,38 @@ plugin in `gradle/libs.versions.toml`). If it is not, use the `setup-project` sk
 
 ## 1. Decide the inputs
 
-| Input       | Meaning                                                                                  |
-|-------------|------------------------------------------------------------------------------------------|
-| `module`    | Gradle module dir. Existing dir = add a tool to that APK (the default choice).           |
-| `--tool`    | PascalCase tool name, no `Tool` suffix. Default: from the module name (`weather-radar`). |
-| `--package` | Base package, needed for a new module (`com.example.weather`). Ask the user if unknown.  |
-| `--label`   | App label for a new module. Default `ComBat <Tool>`.                                     |
-| `--minimal` | Window + ViewModel only. Use when the tool has no persistence or SDK interactor.         |
-| `--new-apk` | Allow a new module when the project already has a tool APK. Only with a reason below.    |
+| Input       | Meaning                                                                                             |
+|-------------|-----------------------------------------------------------------------------------------------------|
+| `module`    | Gradle module dir. Existing dir = add a tool to that APK (the default choice).                      |
+| `--tool`    | PascalCase tool name, no `Tool` suffix. Default: from the module name (`weather-radar`).            |
+| `--package` | Base package, needed for a new module (`com.example.weather`). Ask the user if unknown.             |
+| `--label`   | App label for a new module. Default `ComBat <Tool>`.                                                |
+| `--minimal` | Window + ViewModel only. Use when the tool has no persistence or SDK interactor.                    |
+| `--new-apk` | Allow a new module when the project has a tool APK: a separately installed tool, or a reason below. |
 
-### One APK for all tools
+### One APK per distribution unit
 
-Put new tools into the project's existing tool module. The host loads every plugin APK
-separately (its own class loader, resources and startup work), so each extra APK makes the host
-app slower to start. One APK can hold any number of tools: each is one more `<tool-descriptor>`
-line in `res/xml/combat_tools.xml`.
+Group tools by how they are distributed:
 
-To find the module, look for `src/main/res/xml/combat_tools.xml` under the project's modules. If
-there are several, pick the one whose tools are closest to the new one.
+- **Tools that ship together go into one APK.** The host loads every plugin APK separately (its
+  own class loader, resources and start-up work), so each extra APK makes the host app slower to
+  start. One APK holds any number of tools: each is one more `<tool-descriptor>` line in
+  `res/xml/combat_tools.xml`.
+- **A tool that users install on its own gets its own APK**, so it can be downloaded and installed
+  without the others. Ask the user whether the new tool ships with the existing ones or is offered
+  as a separate download.
 
-Create a new module only when the tool cannot share the APK, and say which reason applies:
+To find the existing module, look for `src/main/res/xml/combat_tools.xml` under the project's
+modules. If there are several, pick the one that ships the tools closest to the new one.
+
+Other reasons for a separate APK, even for tools that ship together:
 
 - native libraries (`.so`) that conflict with ones already in the APK
 - manifest entries or permissions that must not apply to the other tools
-- a different release cycle or owner, so the APK must ship on its own
-- a dependency the host does not provide that is too large to add to every user of the APK
 
-Without one of these, keep the tool in the existing APK even when the user names a new module;
-explain why and ask before using `--new-apk`. The script refuses a second tool module without
-that flag.
+Without one of these reasons, keep the tool in the existing APK even when the user names a new
+module; explain why and ask before using `--new-apk`. The script refuses a second tool module
+without that flag.
 
 Never put tools into an app module (one with a launcher `Activity`) or a library module: the
 script refuses modules without `combat_tools.xml`. An app gets a companion plugin module; see the
