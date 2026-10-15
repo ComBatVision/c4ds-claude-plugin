@@ -65,7 +65,7 @@ jobs:
 
       - name: Validate plugin
         if: steps.claude.outcome == 'success'
-        run: claude plugin validate .
+        run: claude plugin validate . --strict
 
       - name: Setup project with first tool
         run: >-

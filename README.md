@@ -67,6 +67,19 @@ Validate before pushing:
 claude plugin validate .
 ```
 
+### Releasing
+
+Users only get an update when the plugin version goes up. Every pull request that changes
+`plugins/`:
+
+1. raises `version` in [`plugins/c4ds/.claude-plugin/plugin.json`](plugins/c4ds/.claude-plugin/plugin.json)
+   (semver: patch for fixes and wording, minor for new behavior, major for removed or renamed
+   commands, flags or skills), and
+2. adds a `## <version>` entry to [`CHANGELOG.md`](CHANGELOG.md).
+
+The `Release` workflow checks both on pull requests, and tags each new version on `main` as
+`v<version>`.
+
 ### CI
 
 `.github/workflows/template-drift.yml` runs on pull requests, pushes to `main` and every Monday. It
