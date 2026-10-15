@@ -1,0 +1,45 @@
+# Users only get a plugin update when the version in plugin.json goes up. Pull requests that change
+# plugins/ must raise it and add a CHANGELOG.md entry; every new version on main gets a v<version>
+# tag.
+name: Release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check version bump and changelog
+        run: python3 .github/scripts/check_version.py "origin/${{ github.base_ref }}"
+
+  tag:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag a new version
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('plugins/c4ds/.claude-plugin/plugin.json'))['version'])")
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version already tagged."
+            exit 0
+          fi
+          git tag "v$version"
+          git push origin "v$version"
+          echo "Tagged v$version."

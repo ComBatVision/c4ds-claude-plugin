@@ -65,7 +65,7 @@ jobs:
 
       - name: Validate plugin
         if: steps.claude.outcome == 'success'
-        run: claude plugin validate .
+        run: claude plugin validate . --strict
 
       - name: Setup project with first tool
         run: >-
@@ -76,9 +76,18 @@ jobs:
         working-directory: ${{ runner.temp }}/demo
         run: python3 "$SCRIPT" new-tool demo --tool Extra --minimal
 
+      - name: Refuse a second tool APK without --new-apk
+        working-directory: ${{ runner.temp }}/demo
+        run: |
+          if python3 "$SCRIPT" new-tool second --package com.example.second; then
+            echo "::error::new-tool created a second APK module without --new-apk"
+            exit 1
+          fi
+          test ! -e second
+
       - name: Add a tool in a new module
         working-directory: ${{ runner.temp }}/demo
-        run: python3 "$SCRIPT" new-tool second --package com.example.second
+        run: python3 "$SCRIPT" new-tool second --package com.example.second --new-apk
 
       - name: Build scaffolded modules
         if: steps.creds.outputs.present == 'true'

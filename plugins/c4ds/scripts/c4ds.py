@@ -248,8 +248,26 @@ def cmd_adopt(args: argparse.Namespace) -> None:
             samples.copy("gradle/libs.versions.toml", project)
         else:
             print("Version catalog:")
-            update_pins(project, toml, samples)
-            add_plugin_aliases(toml, samples.root / "gradle/libs.versions.toml")
+            app_agp = plugin_alias(toml, "com.android.application")
+            # An existing app owns its AGP and Kotlin; when it declares AGP under its own alias, the
+            # template's alias reuses that and no `agp` pin is added.
+            update_pins(project, toml, samples, keep=("agp", "kotlin"),
+                        omit=("agp",) if app_agp else ())
+            add_plugin_aliases(toml, samples.root / "gradle/libs.versions.toml", app_agp)
+            if app_agp:
+                kotlin = samples.versions().get("kotlin", "?")
+                if not plugin_alias(toml, "org.jetbrains.kotlin.android"):
+                    text = toml.read_text().replace(
+                        "[plugins]\n",
+                        '[plugins]\nkotlin-android = { id = "org.jetbrains.kotlin.android", '
+                        'version.ref = "kotlin" }\n', 1)
+                    toml.write_text(text)
+                    print("  + plugin alias kotlin-android")
+                # One build compiles with one Kotlin: the root must load the host's Kotlin
+                # Gradle plugin, or AGP's built-in Kotlin compiles the tool and fails on the SDK.
+                manual.append(f"build.gradle.kts: add `alias(libs.plugins.kotlin.android) apply false` "
+                              f"to the root plugins block, so the whole build, app included, "
+                              f"compiles with Kotlin {kotlin} (the host's)")
 
         print("Docs:")
         for path in DOC_PATHS:
@@ -287,13 +305,26 @@ def append_missing_lines(target: Path, source: Path | None, lines: list | None =
     print(f"  {'~' if have else '+'} {target.name} (+{len(missing)} lines)")
 
 
-def add_plugin_aliases(toml: Path, samples_toml: Path) -> None:
+def plugin_alias(toml: Path, plugin_id: str) -> tuple | None:
+    """The (alias, line) that declares `plugin_id` in the catalog, if any."""
+    for line in toml.read_text().splitlines():
+        match = re.match(rf'([\w.-]+)\s*=\s*\{{.*\bid\s*=\s*"{re.escape(plugin_id)}"', line)
+        if match:
+            return match.group(1), line
+    return None
+
+
+def add_plugin_aliases(toml: Path, samples_toml: Path, app_agp: tuple | None = None) -> None:
     text = toml.read_text()
     aliases = {}
     for line in samples_toml.read_text().splitlines():
         match = re.match(r"([\w-]+)\s*=\s*\{.*\bid\s*=", line)
         if match and match.group(1) in TEMPLATE_PLUGINS:
             aliases[match.group(1)] = line
+    if app_agp and app_agp[0] != "android-application":
+        # The template uses `android-application`; point it at the app's AGP version, since one
+        # build cannot apply two AGP versions.
+        aliases["android-application"] = "android-application = " + app_agp[1].split("=", 1)[1].strip()
     missing = [line for alias, line in aliases.items()
                if not re.search(rf"^{re.escape(alias)}\s*=", text, re.MULTILINE)]
     if not missing:
@@ -349,11 +380,11 @@ def render(template: str, tokens: dict) -> str:
 
 def cmd_new_tool(args: argparse.Namespace) -> None:
     scaffold(find_project(Path.cwd()), args.module, args.tool, args.package, args.label,
-             args.minimal)
+             args.minimal, args.new_apk)
 
 
 def scaffold(project: Path, module: str, tool: str | None, package: str | None,
-             label: str | None, minimal: bool) -> None:
+             label: str | None, minimal: bool, new_apk: bool = False) -> None:
     def write(path: Path, content: str) -> None:
         if path.exists():
             fail(f"Refusing to overwrite {rel(path, project)}")
@@ -377,11 +408,24 @@ def scaffold(project: Path, module: str, tool: str | None, package: str | None,
 
     module_dir = project / module
     new_module = not module_dir.exists()
+    if new_module and not new_apk:
+        # Every plugin APK costs the host start-up time, so tools that ship together share one.
+        existing = sorted(p.parents[4].name for p in project.glob("*/src/main/res/xml/combat_tools.xml"))
+        if existing:
+            fail(f"The project already has a tool APK ({', '.join(existing)}). If the tool ships with "
+                 f"those tools, add it there: `new-tool {existing[0]} --tool {tool}`; each extra APK "
+                 "slows the host's start-up. Pass --new-apk if users install the tool on its own, or "
+                 "for another reason in the new-tool skill.")
     if new_module:
         if not package:
             fail("A new module needs --package, e.g. com.example.weather")
         namespace = package
     else:
+        if not (module_dir / "src/main/res/xml/combat_tools.xml").exists():
+            fail(f":{module} is not a C4DS tool module (no src/main/res/xml/combat_tools.xml). Do not "
+                 "add tools to an app or library module: create a companion plugin module, e.g. "
+                 f"`new-tool {module}-c4ds --package <package>.c4ds` (see the setup-project skill, "
+                 "section 'Existing Android app').")
         build = (module_dir / "build.gradle.kts").read_text()
         match = re.search(r'namespace\s*=\s*"([^"]+)"', build)
         if not match:
@@ -474,7 +518,10 @@ def cmd_sync(args: argparse.Namespace) -> None:
           f"{SAMPLES_WEB}/blob/{args.ref}/docs/guides/migrating-to-the-gradle-plugin.md")
 
 
-def update_pins(project: Path, toml: Path, samples: Samples) -> None:
+def update_pins(project: Path, toml: Path, samples: Samples, keep: tuple = (),
+                omit: tuple = ()) -> None:
+    """Set the pinned versions from the samples. Keys in `keep` that the project already has are
+    reported, not changed: an existing app owns its AGP and Kotlin versions."""
     if not toml.exists():
         fail("No gradle/libs.versions.toml; create one with a [versions] table first")
     new = samples.versions()
@@ -484,10 +531,14 @@ def update_pins(project: Path, toml: Path, samples: Samples) -> None:
     old = read_versions(toml)
     added = []
     for key in PINNED_VERSIONS:
-        if key not in new:
+        if key not in new or key in omit:
             continue
         if old.get(key) == new[key]:
             print(f"  = {key} {new[key]}")
+            continue
+        if key in old and key in keep:
+            print(f"  ! {key} {old[key]} kept; the samples use {new[key]} (see the setup-project "
+                  "skill, section 'Existing Android app')")
             continue
         if key in old:
             text = re.sub(rf'^({re.escape(key)}\s*=\s*)"[^"]*"', rf'\g<1>"{new[key]}"', text,
@@ -674,6 +725,9 @@ def main() -> None:
         p.add_argument("--package", help="base package of a new module, e.g. com.example.weather")
         p.add_argument("--label", help="app label of a new module")
         p.add_argument("--minimal", action="store_true", help="window + ViewModel only")
+        if module_required:
+            p.add_argument("--new-apk", action="store_true",
+                           help="allow a new module although the project has a tool APK")
 
     p = sub.add_parser("setup", help="create a C4DS tool project")
     p.add_argument("--dir", default=".", help="project dir (default: current)")

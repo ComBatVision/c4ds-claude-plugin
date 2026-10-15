@@ -1,6 +1,6 @@
 ---
 name: setup-project
-description: Set up a repository for developing ComBat 4 DS (C4DS) external tools - Gradle wrapper, Nexus SDK repository, version pins, AGENTS.md and docs for agents - then scaffold the first tool and build it. Use when the user wants to start C4DS plugin or tool development in a new or empty repo, add C4DS tool development to an existing Gradle project, or asks how to set up the C4DS development environment.
+description: Set up a repository for developing ComBat 4 DS (C4DS) external tools - Gradle wrapper, Nexus SDK repository, version pins, AGENTS.md and docs for agents - then scaffold the first tool and build it. Use when the user wants to start C4DS plugin or tool development in a new or empty repo, add C4DS tool development to an existing Gradle project or Android app, or asks how to set up the C4DS development environment.
 argument-hint: [--module name --package com.example.x] [--tool Name] [--label "App label"] [--minimal]
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
@@ -40,7 +40,9 @@ A missing device or host app is only a warning: it matters for running the tool,
 
 - **Directory:** the current repo root, unless the user names another one. It must not have
   a Gradle settings file yet; for that case see "Existing project" below.
-- **First tool:** module name and base package (`com.example.weather`). Ask for the package
+- **First tool:** module name and base package (`com.example.weather`). The module is a plugin
+  APK, and later tools that ship with it join it, so name it after the product, not the first
+  tool (`weather` holds Weather, Radar, ...). Ask for the package
   if the user did not give one; it becomes the APK's `applicationId`.
 - **Ref:** `main` by default. Pass `--ref <branch-or-tag>` only when the user needs an older
   SDK line.
@@ -87,6 +89,8 @@ Tell the developer:
 - `AGENTS.md` and `docs/` are the rules for this project; agents read them first.
 - `/c4ds:new-tool` adds tools, `/c4ds:doctor` checks the environment, `/c4ds:update-sdk`
   moves to a newer SDK and refreshes the docs.
+- Tools that ship together go into the same module, since every extra plugin APK makes the host
+  app slower to start. A tool that users install on its own gets its own module and APK.
 - Nothing is committed. Suggest a first commit of the generated files; `local.properties` is
   ignored.
 
@@ -115,3 +119,47 @@ google, mavenCentral, gradlePluginPortal and the Nexus `maven-sdk` repository wi
 credentials properties) and the root `build.gradle.kts` (the `maven-sdk` repository for
 subprojects). Merge those by hand, delete `.c4ds-reference/`, then run doctor and continue with
 the `new-tool` skill.
+
+## Existing Android app
+
+When the repo is an Android app that should also offer a tool in ComBat 4 DS, do not make the
+app's own APK the plugin. Add a companion plugin module next to it:
+
+```
+<app>/          the existing application: launcher Activity, its own libraries (unchanged)
+<app>-shared/   optional Android library: models, API client, IPC contract with the app
+<app>-c4ds/     the plugin APK: the vision.combat.c4.ds plugin and the tools
+```
+
+Why, in short for the user:
+
+- The host loads tool code into its own process. It cannot read the app's private files or
+  database either way, so tools talk to the app through IPC (a `ContentProvider` or a bound
+  service) or through the C4DS model; one APK gains nothing.
+- The SDK Gradle plugin removes the libraries the host ships from the plugin APK, which a
+  standalone app needs, and the host loads its own copy of any class name the APK shares with it.
+  Inside one APK the app's library versions would have to follow the host's.
+- A thin plugin APK is much smaller for the host to load than the whole app.
+
+Steps:
+
+1. Run `adopt` from the project root (see "Existing project"). It keeps the app's AGP version and
+   reuses the app's AGP plugin alias, since one build applies one AGP. When that AGP is older than
+   the samples' version, tell the user: the host is built with the samples' AGP.
+2. **Kotlin is shared by the whole build.** A tool must compile with the host's Kotlin version
+   (`kotlin` in the catalog), so the app compiles with it too. `adopt` adds a `kotlin-android`
+   plugin alias and lists the root `build.gradle.kts` line to add
+   (`alias(libs.plugins.kotlin.android) apply false`). Without it AGP's built-in Kotlin compiles the
+   tool and the build fails with `Class 'kotlin.Unit' was compiled with an incompatible version of
+   Kotlin`. Tell the user the app moves to that Kotlin version. If the app cannot, put the plugin
+   in a separate Gradle build in the same repo instead (run `setup --dir c4ds` there) and share
+   code through a published or included library.
+3. Review the `gradle.properties` lines `adopt` appended: they apply to the app too. Remove any
+   that change the app's build.
+4. Create the plugin module with the `new-tool` skill: module `<app>-c4ds`, package
+   `<app applicationId>.c4ds`. `new-tool` refuses the app module itself.
+5. Move code both APKs need into a library module, which the plugin depends on with
+   `implementation`. Keep SDK types out of it: the app does not ship the SDK.
+6. Build both: `./gradlew :<app>:assembleDebug :<app>-c4ds:assembleDebug`. Users install both
+   APKs; the host loads only the plugin.
+

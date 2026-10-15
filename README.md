@@ -18,12 +18,12 @@ claude plugin marketplace update c4ds-claude-plugin
 
 ## Skills
 
-| Skill                 | What it does                                                                                           |
-|-----------------------|--------------------------------------------------------------------------------------------------------|
+| Skill                 | What it does                                                                                               |
+|-----------------------|------------------------------------------------------------------------------------------------------------|
 | `/c4ds:setup-project` | Sets up a repo: Gradle wrapper, Nexus repository, SDK/AGP/Kotlin pins, `AGENTS.md` + `docs/`, a first tool |
-| `/c4ds:new-tool`      | Adds a tool, as a new plugin APK module or into an existing module                                     |
-| `/c4ds:doctor`        | Checks JDK, Android SDK, device, host app, Nexus credentials and access, and the SDK pin               |
-| `/c4ds:update-sdk`    | Moves the SDK, AGP, Kotlin and Gradle versions to the latest samples, refreshes the docs                |
+| `/c4ds:new-tool`      | Adds a tool: into the APK it ships with, or its own APK when users install it separately                   |
+| `/c4ds:doctor`        | Checks JDK, Android SDK, device, host app, Nexus credentials and access, and the SDK pin                   |
+| `/c4ds:update-sdk`    | Moves the SDK, AGP, Kotlin and Gradle versions to the latest samples, refreshes the docs                   |
 
 Type `/c4ds` in Claude Code to list them, or describe the task ("set up a C4DS tool project here")
 and Claude picks the skill.
@@ -67,6 +67,19 @@ Validate before pushing:
 claude plugin validate .
 ```
 
+### Releasing
+
+Users only get an update when the plugin version goes up. Every pull request that changes
+`plugins/`:
+
+1. raises `version` in [`plugins/c4ds/.claude-plugin/plugin.json`](plugins/c4ds/.claude-plugin/plugin.json)
+   (semver: patch for fixes and wording, minor for new behavior, major for removed or renamed
+   commands, flags or skills), and
+2. adds a `## <version>` entry to [`CHANGELOG.md`](CHANGELOG.md).
+
+The `Release` workflow checks both on pull requests, and tags each new version on `main` as
+`v<version>`.
+
 ### CI
 
 `.github/workflows/template-drift.yml` runs on pull requests, pushes to `main` and every Monday. It
@@ -79,10 +92,10 @@ Settings > Secrets and variables > Actions), with this repository in their acces
 workflow passes them to Gradle as `c4ds_sdk_username` and `c4ds_sdk_password`. A repository
 secret with the same name would override them, so do not add one:
 
-| Secret              | Value                     |
-|---------------------|---------------------------|
-| `C4DS_SDK_USERNAME` | Nexus `maven-sdk` user    |
-| `C4DS_SDK_PASSWORD` | Password of that user     |
+| Secret              | Value                  |
+|---------------------|------------------------|
+| `C4DS_SDK_USERNAME` | Nexus `maven-sdk` user |
+| `C4DS_SDK_PASSWORD` | Password of that user  |
 
 Without them, pull requests (including ones from forks) skip the build with a warning; pushes and
 scheduled runs fail.
