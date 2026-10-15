@@ -50,7 +50,7 @@ jobs:
             echo "::warning::C4DS_SDK_USERNAME / C4DS_SDK_PASSWORD not available; skipping the Gradle builds."
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Add the C4DS_SDK_USERNAME and C4DS_SDK_PASSWORD repository secrets."
+            echo "::error::C4DS_SDK_USERNAME / C4DS_SDK_PASSWORD missing; add them as organization secrets and give this repository access."
             exit 1
           fi
 

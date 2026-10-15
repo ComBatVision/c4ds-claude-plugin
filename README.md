@@ -74,9 +74,10 @@ validates the plugin, scaffolds a project with `setup` and two `new-tool` calls 
 repo `main`, builds both modules, and checks that `adopt` works on a bare Gradle project. The weekly
 run catches SDK pin changes in the samples repo that break the templates.
 
-The Gradle build needs Nexus access. Add these repository secrets (Settings > Secrets and
-variables > Actions); the workflow passes them to Gradle as `c4ds_sdk_username` and
-`c4ds_sdk_password`:
+The Gradle build needs Nexus access. The secrets are ComBatVision organization secrets (org
+Settings > Secrets and variables > Actions), with this repository in their access list; the
+workflow passes them to Gradle as `c4ds_sdk_username` and `c4ds_sdk_password`. A repository
+secret with the same name would override them, so do not add one:
 
 | Secret              | Value                     |
 |---------------------|---------------------------|
