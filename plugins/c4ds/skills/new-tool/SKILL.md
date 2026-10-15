@@ -1,7 +1,7 @@
 ---
 name: new-tool
 description: Scaffold a new external C4DS tool, as a new plugin APK module or as another tool in an existing module, from a fixed template that follows the C4DS docs, then build it. Use when the user asks to create, start, scaffold or add a C4DS tool, plugin or sample in an existing C4DS tool project.
-argument-hint: <module> [--tool Name] [--package com.example.x] [--minimal]
+argument-hint: <module> [--tool Name] [--package com.example.x] [--label "App label"] [--minimal]
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
 
@@ -35,8 +35,11 @@ use the package `vision.combat.c4.ds.sample.<module>`.
 From the project root:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py new-tool <module> [--tool Name] [--package pkg] [--minimal]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py new-tool <module> [--tool Name] [--package pkg] [--label "App label"] [--minimal]
 ```
+
+Run the script as a command of its own, not chained with other commands: the plugin's
+permission rule allows only the script.
 
 It refuses to overwrite files. For a new module it adds `include(":<module>")` to
 `settings.gradle.kts`.

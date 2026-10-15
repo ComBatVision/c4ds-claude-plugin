@@ -25,6 +25,9 @@ versions and docs. This skill copies those pins and docs into the project.
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py sync --pins [--ref <branch-or-tag>]
 ```
 
+Run the script as a command of its own, not chained with other commands: the plugin's
+permission rule allows only the script.
+
 Without `--pins` (the user asked only for docs) it refreshes `AGENTS.md`, `CLAUDE.md` and
 `docs/` and leaves versions alone.
 

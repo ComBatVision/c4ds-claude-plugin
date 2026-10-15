@@ -1,7 +1,7 @@
 ---
 name: setup-project
-description: Set up a standalone repository for developing ComBat 4 DS (C4DS) external tools - Gradle wrapper, Nexus SDK repository, version pins, AGENTS.md and docs for agents - then scaffold the first tool and build it. Use when the user wants to start C4DS plugin or tool development in a new or empty repo, or asks how to set up the C4DS development environment.
-argument-hint: [--module name --package com.example.x]
+description: Set up a repository for developing ComBat 4 DS (C4DS) external tools - Gradle wrapper, Nexus SDK repository, version pins, AGENTS.md and docs for agents - then scaffold the first tool and build it. Use when the user wants to start C4DS plugin or tool development in a new or empty repo, add C4DS tool development to an existing Gradle project, or asks how to set up the C4DS development environment.
+argument-hint: [--module name --package com.example.x] [--tool Name] [--label "App label"] [--minimal]
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
 
@@ -48,8 +48,11 @@ A missing device or host app is only a warning: it matters for running the tool,
 ## 3. Run setup
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py setup --module <module> --package <package> [--tool Name] [--minimal]
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py setup --module <module> --package <package> [--tool Name] [--label "App label"] [--minimal]
 ```
+
+Run the script as a command of its own, not chained with other commands: the plugin's
+permission rule allows only the script.
 
 Options: `--dir <path>` (default: current directory), `--name <rootProject.name>` (default:
 directory name). It creates:
@@ -89,14 +92,26 @@ Tell the developer:
 
 ## Existing project
 
-When the repo already has a Gradle build, do not run `setup`. Instead:
+When the repo already has a Gradle build, `setup` refuses. Use `adopt` from the project root:
 
-1. Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py sync --pins` from the project root.
-   It copies `AGENTS.md` + `docs/` and adds the `combat-ds-sdk`, `agp` and `kotlin` versions
-   to `gradle/libs.versions.toml`. Review `git diff` afterwards: `AGENTS.md` and `CLAUDE.md`
-   are overwritten, so merge back any project-specific content they had.
-2. Compare the project's `settings.gradle.kts` and catalog `[plugins]` with the samples
-   repo's and add what is missing: the Nexus `maven-sdk` repository in `pluginManagement`,
-   and the `android-application` and `combat-plugin` plugin aliases the `new-tool` template
-   uses.
-3. Continue with the `new-tool` skill.
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py adopt
+```
+
+It adds what is missing and leaves the rest alone:
+
+- `gradlew`, `gradlew.bat`, `gradle/wrapper/`: copied when missing.
+- `gradle.properties`, `.gitignore`: lines the project lacks are appended.
+- `gradle/libs.versions.toml`: copied when missing; otherwise the `combat-ds-sdk`, `agp` and
+  `kotlin` versions are set and the `android-application` and `combat-plugin` aliases that the
+  `new-tool` template uses are added.
+- `build.gradle.kts`: copied when missing.
+- `AGENTS.md`, `CLAUDE.md`, `docs/`: copied. Existing `AGENTS.md` and `CLAUDE.md` are
+  overwritten; restore project-specific content from `git diff`.
+
+Files it cannot merge safely are listed at the end, with the samples version saved in
+`.c4ds-reference/`. Usually that is `settings.gradle.kts` (the `pluginManagement` repositories:
+google, mavenCentral, gradlePluginPortal and the Nexus `maven-sdk` repository with its
+credentials properties) and the root `build.gradle.kts` (the `maven-sdk` repository for
+subprojects). Merge those by hand, delete `.c4ds-reference/`, then run doctor and continue with
+the `new-tool` skill.

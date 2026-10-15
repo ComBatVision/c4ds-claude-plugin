@@ -3,6 +3,7 @@
 
 Commands:
   setup     Create a Gradle project for C4DS tools in an empty directory.
+  adopt     Add the C4DS build setup and docs to an existing Gradle project.
   new-tool  Add a tool: a new plugin APK module, or another tool in an existing module.
   sync      Refresh the vendored AGENTS.md + docs/, and optionally the version pins.
   doctor    Check JDK, Android SDK, adb, device, host app, Nexus credentials and access.
@@ -113,11 +114,16 @@ class Samples:
                     target = os.path.normpath(here / match.group(1))
                     if (target_root / target).exists() or target.startswith(".."):
                         return match.group(0)
-                    kind = "tree" if (self.root / target).is_dir() else "blob"
+                    kind = "tree" if self.object_type(target) == "tree" else "blob"
                     url = f"{SAMPLES_WEB}/{kind}/{self.commit}/{target}"
                     return f"]({url}{match.group(2) or ''})"
 
                 md.write_text(link.sub(fix, md.read_text()))
+
+    def object_type(self, path: str) -> str:
+        result = subprocess.run(["git", "cat-file", "-t", f"HEAD:{path}"], cwd=self.root,
+                                capture_output=True, text=True)
+        return result.stdout.strip()
 
     def versions(self) -> dict:
         return read_versions(self.root / "gradle/libs.versions.toml")
@@ -161,8 +167,8 @@ def cmd_setup(args: argparse.Namespace) -> None:
     project = Path(args.dir).resolve()
     project.mkdir(parents=True, exist_ok=True)
     if (project / "settings.gradle.kts").exists() or (project / "settings.gradle").exists():
-        fail(f"{project} already has a Gradle settings file. Merge the setup by hand; see "
-             "the setup-project skill, section 'Existing project'.")
+        fail(f"{project} already has a Gradle settings file. Use `adopt` for an existing "
+             "project; see the setup-project skill, section 'Existing project'.")
     name = args.name or project.name
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
         fail(f"Invalid project name {name!r}")
@@ -195,6 +201,109 @@ def cmd_setup(args: argparse.Namespace) -> None:
     if args.module:
         print()
         scaffold(project, args.module, args.tool, args.package, args.label, args.minimal)
+
+
+# ---------------------------------------------------------------------------------------------
+# adopt
+
+REFERENCE_DIR = ".c4ds-reference"
+# Catalog plugin aliases the new-tool template uses.
+TEMPLATE_PLUGINS = ("android-application", "combat-plugin")
+
+
+def cmd_adopt(args: argparse.Namespace) -> None:
+    project = find_project(Path.cwd())
+    samples = Samples(args.ref, args.samples)
+    manual = []
+
+    def reference(path: str, reason: str) -> None:
+        dst = project / REFERENCE_DIR / path
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(samples.root / path, dst)
+        manual.append(f"{path}: {reason}")
+        print(f"  ! {path}: merge by hand, samples copy in {REFERENCE_DIR}/{path}")
+
+    try:
+        print(f"Adopting {project}")
+        print("Build files:")
+        for path in ("gradlew", "gradlew.bat", "gradle/wrapper"):
+            if (project / path).exists():
+                print(f"  = {path} (kept)")
+            else:
+                samples.copy(path, project)
+        (project / "gradlew").chmod(0o755)
+        for path in ("gradle.properties", ".gitignore"):
+            append_missing_lines(project / path, samples.root / path)
+
+        if not (project / "build.gradle.kts").exists():
+            samples.copy("build.gradle.kts", project)
+        elif "maven-sdk" not in (project / "build.gradle.kts").read_text():
+            reference("build.gradle.kts", "add the maven-sdk repository for subprojects")
+        if "maven-sdk" not in (project / "settings.gradle.kts").read_text():
+            reference("settings.gradle.kts",
+                      "add the pluginManagement repositories, including maven-sdk")
+
+        toml = project / "gradle/libs.versions.toml"
+        if not toml.exists():
+            samples.copy("gradle/libs.versions.toml", project)
+        else:
+            print("Version catalog:")
+            update_pins(project, toml, samples)
+            add_plugin_aliases(toml, samples.root / "gradle/libs.versions.toml")
+
+        print("Docs:")
+        for path in DOC_PATHS:
+            if path in ("AGENTS.md", "CLAUDE.md") and (project / path).exists():
+                print(f"  ~ {path} (overwritten; restore project-specific content from git)")
+            samples.copy(path, project)
+        samples.link_outside(project)
+
+        print("Source:")
+        write_local_properties(project)
+        write_source(project, samples)
+    finally:
+        samples.close()
+
+    if manual:
+        append_missing_lines(project / ".gitignore", None, [f"/{REFERENCE_DIR}/"])
+        print(f"\nMerge by hand, then delete {REFERENCE_DIR}/:")
+        for item in manual:
+            print(f"  - {item}")
+
+
+def append_missing_lines(target: Path, source: Path | None, lines: list | None = None) -> None:
+    """Append the lines of `source` (or `lines`) that `target` lacks; create `target` if missing."""
+    wanted = lines if lines is not None else source.read_text().splitlines()
+    have = set(target.read_text().splitlines()) if target.exists() else set()
+    keys = {line.split("=", 1)[0].strip() for line in have if "=" in line}
+    missing = [line for line in wanted if line.strip() and not line.startswith("#")
+               and line not in have and line.split("=", 1)[0].strip() not in keys]
+    if not missing:
+        return
+    text = target.read_text() if target.exists() else ""
+    if text and not text.endswith("\n"):
+        text += "\n"
+    target.write_text(text + "\n".join(missing) + "\n")
+    print(f"  {'~' if have else '+'} {target.name} (+{len(missing)} lines)")
+
+
+def add_plugin_aliases(toml: Path, samples_toml: Path) -> None:
+    text = toml.read_text()
+    aliases = {}
+    for line in samples_toml.read_text().splitlines():
+        match = re.match(r"([\w-]+)\s*=\s*\{.*\bid\s*=", line)
+        if match and match.group(1) in TEMPLATE_PLUGINS:
+            aliases[match.group(1)] = line
+    missing = [line for alias, line in aliases.items()
+               if not re.search(rf"^{re.escape(alias)}\s*=", text, re.MULTILINE)]
+    if not missing:
+        return
+    if "[plugins]" not in text:
+        text = text.rstrip("\n") + "\n\n[plugins]\n"
+    text = text.replace("[plugins]\n", "[plugins]\n" + "\n".join(missing) + "\n", 1)
+    toml.write_text(text)
+    for line in missing:
+        print(f"  + plugin alias {line.split('=', 1)[0].strip()}")
 
 
 def write_local_properties(project: Path) -> None:
@@ -345,6 +454,9 @@ def scaffold(project: Path, module: str, tool: str | None, package: str | None,
 def cmd_sync(args: argparse.Namespace) -> None:
     project = find_project(Path.cwd())
     toml = project / "gradle/libs.versions.toml"
+    if args.pins and not toml.exists():
+        fail("No gradle/libs.versions.toml. For a project that is not set up for C4DS yet, "
+             "use `adopt` instead.")
     samples = Samples(args.ref, args.samples)
     try:
         print("Docs:")
@@ -354,6 +466,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
         if args.pins:
             print("Pins:")
             update_pins(project, toml, samples)
+        print("Source:")
         write_source(project, samples)
     finally:
         samples.close()
@@ -369,6 +482,7 @@ def update_pins(project: Path, toml: Path, samples: Samples) -> None:
     if "[versions]\n" not in text:
         text = "[versions]\n\n" + text
     old = read_versions(toml)
+    added = []
     for key in PINNED_VERSIONS:
         if key not in new:
             continue
@@ -379,11 +493,16 @@ def update_pins(project: Path, toml: Path, samples: Samples) -> None:
             text = re.sub(rf'^({re.escape(key)}\s*=\s*)"[^"]*"', rf'\g<1>"{new[key]}"', text,
                           flags=re.MULTILINE)
         else:
-            text = text.replace("[versions]\n", f'[versions]\n{key} = "{new[key]}"\n', 1)
+            added.append(f'{key} = "{new[key]}"\n')
         print(f"  ~ {key} {old.get(key, '-')} -> {new[key]}")
+    if added:
+        text = text.replace("[versions]\n", "[versions]\n" + "".join(added), 1)
     toml.write_text(text)
 
     wrapper = "gradle/wrapper/gradle-wrapper.properties"
+    if not (project / wrapper).exists():
+        print(f"  ! no {wrapper}; skipped the Gradle version (`adopt` adds the wrapper)")
+        return
     url = re.compile(r"^distributionUrl=.*$", re.MULTILINE)
     new_url = url.search((samples.root / wrapper).read_text()).group(0)
     current = (project / wrapper).read_text()
@@ -445,14 +564,17 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     report = Report()
     print(f"Project: {project or 'none found (checks the machine only)'}")
 
-    java = run("java", "-version")
+    # Gradle runs on JAVA_HOME when it is set, else on `java` from PATH.
+    java_home = os.environ.get("JAVA_HOME")
+    java_bin = str(Path(java_home) / "bin/java") if java_home else "java"
+    java = run(java_bin, "-version")
     if not java:
-        report.fail("JDK", "java not on PATH; install JDK 17 or newer")
+        report.fail("JDK", f"{java_bin} not found; install JDK 17 or newer")
     else:
         match = re.search(r'version "(\d+)', java.stderr)
         major = int(match.group(1)) if match else 0
         if major >= 17:
-            report.ok("JDK", f"{major}")
+            report.ok("JDK", f"{major} ({'JAVA_HOME' if java_home else 'PATH'})")
         else:
             report.fail("JDK", f"found {major or 'unknown'}, need 17 or newer")
 
@@ -559,6 +681,10 @@ def main() -> None:
     samples_options(p)
     tool_options(p, module_required=False)
     p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("adopt", help="add the C4DS build setup and docs to an existing project")
+    samples_options(p)
+    p.set_defaults(func=cmd_adopt)
 
     p = sub.add_parser("new-tool", help="add a tool to the project in the current dir")
     tool_options(p, module_required=True)

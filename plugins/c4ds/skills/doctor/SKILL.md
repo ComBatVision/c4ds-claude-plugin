@@ -10,6 +10,9 @@ allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py doctor
 ```
 
+Run the script as a command of its own, not chained with other commands: the plugin's
+permission rule allows only the script.
+
 Add `--offline` to skip the request to Nexus. The script reads credentials only to call Nexus
 and never prints them. Do not read `gradle.properties` files yourself to check them.
 
