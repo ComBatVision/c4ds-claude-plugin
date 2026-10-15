@@ -67,6 +67,26 @@ Validate before pushing:
 claude plugin validate .
 ```
 
+### CI
+
+`.github/workflows/template-drift.yml` runs on pull requests, pushes to `main` and every Monday. It
+validates the plugin, scaffolds a project with `setup` and two `new-tool` calls against the samples
+repo `main`, builds both modules, and checks that `adopt` works on a bare Gradle project. The weekly
+run catches SDK pin changes in the samples repo that break the templates.
+
+The Gradle build needs Nexus access. The secrets are ComBatVision organization secrets (org
+Settings > Secrets and variables > Actions), with this repository in their access list; the
+workflow passes them to Gradle as `c4ds_sdk_username` and `c4ds_sdk_password`. A repository
+secret with the same name would override them, so do not add one:
+
+| Secret              | Value                     |
+|---------------------|---------------------------|
+| `C4DS_SDK_USERNAME` | Nexus `maven-sdk` user    |
+| `C4DS_SDK_PASSWORD` | Password of that user     |
+
+Without them, pull requests (including ones from forks) skip the build with a warning; pushes and
+scheduled runs fail.
+
 ## License
 
 [Apache License 2.0](LICENSE)
