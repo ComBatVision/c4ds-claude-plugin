@@ -46,6 +46,10 @@ Without one of these, keep the tool in the existing APK even when the user names
 explain why and ask before using `--new-apk`. The script refuses a second tool module without
 that flag.
 
+Never put tools into an app module (one with a launcher `Activity`) or a library module: the
+script refuses modules without `combat_tools.xml`. An app gets a companion plugin module; see the
+`setup-project` skill, section "Existing Android app".
+
 In the `c4ds-tool-samples` repo itself: one-feature samples go into `gallery`, and new modules
 use the package `vision.combat.c4.ds.sample.<module>`.
 
