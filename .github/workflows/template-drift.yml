@@ -1,0 +1,96 @@
+# Scaffolds real projects with the plugin script and builds them against the current C4DS SDK.
+# The templates break silently when the SDK API changes, and the samples repo can move the SDK
+# pin without touching this repo, so this also runs weekly.
+name: Template drift
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 1"  # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCRIPT: ${{ github.workspace }}/plugins/c4ds/scripts/c4ds.py
+
+jobs:
+  scaffold-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ORG_GRADLE_PROJECT_c4ds_sdk_username: ${{ secrets.C4DS_SDK_USERNAME }}
+      ORG_GRADLE_PROJECT_c4ds_sdk_password: ${{ secrets.C4DS_SDK_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Check Nexus credentials
+        id: creds
+        run: |
+          if [ -n "$ORG_GRADLE_PROJECT_c4ds_sdk_username" ] && [ -n "$ORG_GRADLE_PROJECT_c4ds_sdk_password" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            # Pull requests from forks get no secrets.
+            echo "::warning::C4DS_SDK_USERNAME / C4DS_SDK_PASSWORD not available; skipping the Gradle builds."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Add the C4DS_SDK_USERNAME and C4DS_SDK_PASSWORD repository secrets."
+            exit 1
+          fi
+
+      - name: Install Claude Code CLI
+        id: claude
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Validate plugin
+        if: steps.claude.outcome == 'success'
+        run: claude plugin validate .
+
+      - name: Setup project with first tool
+        run: >-
+          python3 "$SCRIPT" setup --dir "$RUNNER_TEMP/demo" --module demo
+          --package com.example.demo
+
+      - name: Add a minimal tool to the existing module
+        working-directory: ${{ runner.temp }}/demo
+        run: python3 "$SCRIPT" new-tool demo --tool Extra --minimal
+
+      - name: Add a tool in a new module
+        working-directory: ${{ runner.temp }}/demo
+        run: python3 "$SCRIPT" new-tool second --package com.example.second
+
+      - name: Build scaffolded modules
+        if: steps.creds.outputs.present == 'true'
+        working-directory: ${{ runner.temp }}/demo
+        run: ./gradlew --no-daemon --stacktrace :demo:assembleDebug :second:assembleDebug
+
+      - name: Adopt a bare Gradle project
+        run: |
+          dir="$RUNNER_TEMP/existing"
+          mkdir -p "$dir/gradle"
+          printf 'rootProject.name = "existing"\n' > "$dir/settings.gradle.kts"
+          printf '[versions]\n' > "$dir/gradle/libs.versions.toml"
+          cd "$dir"
+          python3 "$SCRIPT" adopt | tee adopt.log
+          # The bare settings file lacks the repositories, so adopt must hand it back for a manual merge.
+          sed -n '/^Merge by hand/,$p' adopt.log | grep -q '^  - settings\.gradle\.kts:' \
+            || { echo "::error::adopt did not list settings.gradle.kts for manual merge"; exit 1; }
+          test -f .c4ds-reference/settings.gradle.kts \
+            || { echo "::error::adopt did not write .c4ds-reference/settings.gradle.kts"; exit 1; }
