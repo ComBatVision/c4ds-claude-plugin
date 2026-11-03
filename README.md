@@ -65,7 +65,13 @@ Validate before pushing:
 
 ```bash
 claude plugin validate .
+python3 .github/scripts/check_directory.py plugins/c4ds   # needs PyYAML
 ```
+
+`claude plugin validate` checks only that the files are well-formed: it passes skill front matter
+that the Claude plugin directory cannot parse. `check_directory.py` applies the directory's
+[pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist) rules, so a
+change that would fail the portal's Validate step fails CI first. The `Release` workflow runs it.
 
 ### Releasing
 

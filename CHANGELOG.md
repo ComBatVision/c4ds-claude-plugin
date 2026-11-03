@@ -8,6 +8,12 @@ minor for new behavior, major for removed or renamed commands, flags or skills.
 The plugin version is independent of the C4DS SDK version: the plugin takes the SDK version from
 the samples repo when it runs. An entry says so when a release needs a newer SDK.
 
+## 0.2.1
+
+- Fixes for the Claude plugin directory: skill `argument-hint` values are quoted, so their
+  front matter parses as YAML (`setup-project` did not parse); the plugin folder has its own
+  README, which states what the plugin runs and connects to, a LICENSE and an icon.
+
 ## 0.2.0
 
 - `new-tool` groups tools into APKs by distribution: tools that ship together share one APK,

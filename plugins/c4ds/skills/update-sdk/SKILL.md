@@ -1,7 +1,7 @@
 ---
 name: update-sdk
 description: Move a ComBat 4 DS (C4DS) tool project to a newer SDK - update the SDK, AGP, Kotlin and Gradle pins from the samples repo, refresh AGENTS.md and docs, apply migration notes, rebuild. Use when the user asks to update, bump or upgrade the C4DS SDK, or to refresh the C4DS docs in their project.
-argument-hint: [--ref branch-or-tag]
+argument-hint: '[--ref branch-or-tag]'
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
 
