@@ -1,7 +1,7 @@
 ---
 name: setup-project
 description: Set up a repository for developing ComBat 4 DS (C4DS) external tools - Gradle wrapper, Nexus SDK repository, version pins, AGENTS.md and docs for agents - then scaffold the first tool and build it. Use when the user wants to start C4DS plugin or tool development in a new or empty repo, add C4DS tool development to an existing Gradle project or Android app, or asks how to set up the C4DS development environment.
-argument-hint: [--module name --package com.example.x] [--tool Name] [--label "App label"] [--minimal]
+argument-hint: '[--module name --package com.example.x] [--tool Name] [--label "App label"] [--minimal]'
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
 

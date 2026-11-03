@@ -1,7 +1,7 @@
 ---
 name: new-tool
 description: Scaffold a new external C4DS tool, in the plugin APK it ships with (tools distributed together share one APK; a separately installed tool gets its own), from a fixed template that follows the C4DS docs, then build it. Use when the user asks to create, start, scaffold or add a C4DS tool, plugin or sample in an existing C4DS tool project.
-argument-hint: <module> [--tool Name] [--package com.example.x] [--label "App label"] [--minimal] [--new-apk]
+argument-hint: '<module> [--tool Name] [--package com.example.x] [--label "App label"] [--minimal] [--new-apk]'
 allowed-tools: Bash(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/c4ds.py *)
 ---
 
