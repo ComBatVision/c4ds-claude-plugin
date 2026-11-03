@@ -53,6 +53,11 @@ CREDENTIAL_READS = [
                r"|\.aws/credentials)"),
     re.compile(r"[\"'][a-z0-9_]*(?:password|passwd|token|secret)[\"']", re.I),
 ]
+CREDENTIAL_HEADER = re.compile(r"auth|token|key|secret|cookie|session|password", re.I)
+ENV_CREDENTIAL = re.compile(r"\$\{?" + SECRET_NAME + r"\}?")
+PACKAGE_INSTALL = re.compile(r"\b(?:npm (?:install|i|ci)|pnpm install|yarn install|bun install|"
+                             r"pip3? install|uv (?:sync|pip install)|poetry install)\b")
+LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "bun.lock", "bun.lockb"}
 SENDS = re.compile(r"urlopen|requests\.(?:get|post|put)|fetch\(|curl\b|wget\b|Authorization|"
                    r"http\.client")
 FETCHES = re.compile(r"\b(?:curl|wget|urlretrieve|urlopen|git[\"' ,]+clone|Invoke-WebRequest)\b"
@@ -63,16 +68,19 @@ EXECUTES = re.compile(r"\|\s*(?:ba|z)?sh\b|chmod\s*\+x|\.chmod\(\s*0o7|os\.chmod
 
 class Report:
     def __init__(self) -> None:
-        self.items: list[tuple[str, str, str]] = []
+        self.items: list[tuple[str, str, str, int]] = []
 
-    def add(self, level: str, where: str, message: str) -> None:
-        self.items.append((level, where, message))
+    def add(self, level: str, where: str, message: str, findings: int = 1) -> None:
+        """Adds one entry; `findings` is how many findings the portal counts for it."""
+        self.items.append((level, where, message, findings))
 
     def print(self) -> int:
         order = {"BLOCKS": 0, "HOLD": 1, "WARN": 2, "NOTE": 3}
-        for level, where, message in sorted(self.items, key=lambda item: order[item[0]]):
-            print(f"{level:6} {where}: {message}")
-        counts = {level: sum(1 for item in self.items if item[0] == level) for level in order}
+        for level, where, message, findings in sorted(self.items, key=lambda i: order[i[0]]):
+            suffix = f" ({findings} findings)" if findings > 1 else ""
+            print(f"{level:6} {where}: {message}{suffix}")
+        counts = {level: sum(item[3] for item in self.items if item[0] == level)
+                  for level in order}
         print(f"\n{counts['BLOCKS']} blocking, {counts['WARN']} warnings, "
               f"{counts['HOLD']} policy holds, {counts['NOTE']} notes")
         return 1 if counts["BLOCKS"] else 0
@@ -107,15 +115,28 @@ def plugin_files(root: Path) -> list[Path]:
         out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                               "--", "."], cwd=root, capture_output=True, text=True, check=True)
         return sorted(root / name for name in out.stdout.split("\0")
-                      if name and (root / name).exists())
+                      if name and ((root / name).exists() or (root / name).is_symlink()))
     except (FileNotFoundError, subprocess.CalledProcessError):
         return sorted(path for path in root.rglob("*") if path.is_file() or path.is_symlink())
+
+
+def repo_root(root: Path) -> Path:
+    """The repository that holds the plugin: git's top level, else the marketplace folder."""
+    root = root.resolve()
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=root,
+                             capture_output=True, text=True, check=True)
+        return Path(out.stdout.strip()).resolve()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return next((parent for parent in [root, *root.parents]
+                     if (parent / ".claude-plugin/marketplace.json").exists()), root)
 
 
 def check_layout(root: Path, files: list[Path], report: Report) -> None:
     if not (root / ".claude-plugin/plugin.json").is_file():
         report.add("BLOCKS", str(root), "no .claude-plugin/plugin.json")
-    for part in root.resolve().parts[-3:]:
+    repo, plugin = repo_root(root), root.resolve()
+    for part in plugin.relative_to(repo).parts:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", part):
             report.add("BLOCKS", str(root), f"folder name {part!r} stops validation")
     lowered: dict[str, Path] = {}
@@ -138,11 +159,22 @@ def check_layout(root: Path, files: list[Path], report: Report) -> None:
             report.add("BLOCKS", str(rel), "Git LFS pointer file")
         elif path.stat().st_size > REPO_FILE_LIMIT:
             report.add("BLOCKS", str(rel), "over 5 MiB; repository too large to validate")
-    for attributes in [*root.resolve().parents, root.resolve()]:
-        gitattributes = attributes / ".gitattributes"
-        if gitattributes.is_file() and re.search(r"export-ignore|export-subst|\bfilter=",
-                                                 gitattributes.read_text()):
-            report.add("BLOCKS", str(gitattributes), "export-ignore, export-subst or filter")
+    check_gitattributes(repo, plugin, report)
+
+
+def check_gitattributes(repo: Path, plugin: Path, report: Report) -> None:
+    """export-ignore and export-subst anywhere in the repository; content filters at the root,
+    above the plugin folder and inside it."""
+    for path in repo.rglob(".gitattributes"):
+        if ".git" in path.relative_to(repo).parts[:-1]:
+            continue
+        rel, text = str(path.relative_to(repo)), path.read_text()
+        if re.search(r"\bexport-(?:ignore|subst)\b", text):
+            report.add("BLOCKS", rel, "export-ignore or export-subst; validation stops")
+        folder = path.parent
+        if re.search(r"(?:^|\s)filter=", text, re.M) and (
+                plugin.is_relative_to(folder) or folder.is_relative_to(plugin)):
+            report.add("BLOCKS", rel, "filter rewrites file contents; validation stops")
 
 
 def check_manifest(root: Path, report: Report) -> dict:
@@ -222,10 +254,9 @@ def check_readme_license(root: Path, manifest: dict, report: Report) -> None:
     if not readmes:
         # The checklist says this blocks, but the portal accepted the repository's README for
         # fb7b8f9, which had none in the plugin folder.
-        repo = next((parent for parent in root.resolve().parents
-                     if (parent / ".claude-plugin/marketplace.json").exists()), None)
-        readmes = [path for path in (repo.iterdir() if repo else [])
-                   if path.name.lower().startswith("readme")]
+        repo = repo_root(root)
+        readmes = [path for path in repo.iterdir() if path.name.lower().startswith("readme")
+                   and path.is_file()] if repo != root.resolve() else []
         if readmes:
             report.add("NOTE", "README", "none in the plugin folder; the repository's is used")
     if not readmes:
@@ -243,15 +274,13 @@ def check_files(root: Path, files: list[Path], report: Report) -> None:
         report.add("HOLD", str(root), f"{len(files)} files, over {FILE_LIMIT}")
     for path in files:
         rel, ext = path.relative_to(root), path.suffix.lower()
-        if ext in IMAGE_EXT | FONT_EXT:
+        if path.is_symlink() or ext in IMAGE_EXT | FONT_EXT:
             continue
         data = path.read_bytes()
         if ext in BINARY_EXT or b"\0" in data[:8000]:
             report.add("HOLD", str(rel), "binary file the validator can't inspect")
         elif len(data) > TEXT_LIMIT:
             report.add("HOLD", str(rel), "over 256 KiB")
-        if path.name in PACKAGE_SOURCE_FILES:
-            report.add("HOLD", str(rel), "package-manager source configuration")
 
 
 def frontmatter(text: str) -> str | None:
@@ -275,11 +304,12 @@ def check_components(root: Path, report: Report) -> None:
             continue
         if not isinstance(data, dict):
             report.add("BLOCKS", rel, "front matter is not a mapping")
-        elif "description" not in data:
+            continue
+        if "description" not in data:
             report.add("WARN", rel, "no description")
         elif not isinstance(data["description"], str):
             report.add("BLOCKS", rel, "description is not text")
-        elif isinstance(data.get("argument-hint"), (list, dict)):
+        if isinstance(data.get("argument-hint"), (list, dict)):
             report.add("NOTE", rel, "argument-hint parses as a list; quote it")
     for folder in root.iterdir():
         expected = {"skills", "commands", "agents", "hooks"}
@@ -316,14 +346,21 @@ def check_json_components(root: Path, report: Report) -> None:
             if re.search(r"\.(mcpb|dxt)\b", command):
                 report.add("HOLD", f".mcp.json {name}", "bundled MCP server not inspected")
             for header, value in (server.get("headers") or {}).items():
-                if value and "${user_config." not in value:
+                if not value or not CREDENTIAL_HEADER.search(header) \
+                        or "${user_config." in value:
+                    continue
+                if "${" in value:
+                    report.add("HOLD", f".mcp.json {name}",
+                               f"header {header} uses a credential from the user's machine")
+                else:
                     report.add("BLOCKS", f".mcp.json {name}", f"secret in MCP header {header}")
 
 
 def check_runtime(root: Path, files: list[Path], report: Report) -> None:
-    launches = False
+    launches = installs = False
     for path in files:
-        if path.suffix.lower() in IMAGE_EXT | FONT_EXT or path.stat().st_size > TEXT_LIMIT:
+        if path.is_symlink() or path.suffix.lower() in IMAGE_EXT | FONT_EXT \
+                or path.stat().st_size > TEXT_LIMIT:
             continue
         rel = str(path.relative_to(root))
         try:
@@ -342,15 +379,26 @@ def check_runtime(root: Path, files: list[Path], report: Report) -> None:
                 report.add("BLOCKS", rel, "uv run without --locked or --frozen")
             else:
                 report.add("HOLD", rel, "runs a pinned package")
-        if path.suffix in {".md"}:
+        installs = installs or bool(PACKAGE_INSTALL.search(text))
+        if path.suffix.lower() == ".md":
+            # Docs and examples count too, but only for credentials taken from the environment.
+            if ENV_CREDENTIAL.search(text) and SENDS.search(text):
+                report.add("HOLD", rel, "uses a credential from the user's machine")
             continue
         reads = sum(1 for pattern in CREDENTIAL_READS if pattern.search(text))
-        if reads and SENDS.search(text):
-            report.add("HOLD", rel, f"uses a credential from the user's machine ({reads} findings)")
+        if reads and SENDS.search(text) and path.name != ".mcp.json":  # headers checked there
+            report.add("HOLD", rel, "uses a credential from the user's machine", reads)
         if FETCHES.search(text) and EXECUTES.search(text):
             report.add("WARN", rel, "contains a download-and-run command")
-    if launches and any(path.name in PACKAGE_SOURCE_FILES for path in files):
-        report.add("BLOCKS", str(root), "launcher with a custom package source")
+    sources = [path for path in files if path.name in PACKAGE_SOURCE_FILES]
+    for source in sources:
+        rel = str(source.relative_to(root))
+        if launches:
+            report.add("BLOCKS", rel, "launcher with a custom registry or package source")
+        elif installs:
+            report.add("HOLD", rel, "install may use a custom registry or package source")
+    if (root / "package.json").is_file() and any((root / name).is_file() for name in LOCKFILES):
+        report.add("HOLD", "package.json", "dependencies install from a lockfile")
 
 
 def main() -> int:

@@ -28,10 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Check against the Claude plugin directory rules
         run: |
-          pip install --quiet pyyaml==6.0.2
-          python3 .github/scripts/check_directory.py plugins/c4ds
+          python -m pip install --quiet pyyaml==6.0.2
+          python .github/scripts/check_directory.py plugins/c4ds
 
   tag:
     if: github.event_name == 'push'
